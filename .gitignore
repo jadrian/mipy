@@ -1,3 +1,7 @@
+# We keep a data directory right next to the code
+# when working in class; don't sync that.
+dwi_data
+
 *.py[cod]
 
 # C extensions
