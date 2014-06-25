@@ -5,11 +5,11 @@ import matplotlib.colors as colors
 
 """Viewing functions for raw medical image data.
 
-Before calling any of these functions, be sure to have run
-matplotlib.pyplot.ion() (or plt.ion()); this turns on interactive plotting,
-which is necessary for the first function call to successfully create a
-figure window.  Otherwise, images will be "displayed" in a virtual window that
-you won't necessarily have easy programmatic access to."""
+Before calling any of these functions, be sure to have run miview.plt.ion();
+this turns on interactive plotting, which is necessary for the first function
+call to successfully create a figure window.  Otherwise, images will be
+"displayed" in a virtual window that you won't see, and won't necessarily have
+easy programmatic access to."""
 
 
 greymap_with_gamma = {'red':   [(0.0, 0.0, 0.0), (1.0, 1.0, 1.0)],
@@ -27,9 +27,9 @@ def viewSlice(X, lo=None, hi=None, gamma=0.5, flipaxes=False):
   
   This function assumes that a matplotlib figure is already open.  If not,
   you can force a new one by calling
-  rawviewer.plt.ion()
+    miview.plt.ion()
   before your first call to viewSlice().  You may (and should) then call
-  rawviewer.plt.ioff()
+    miview.plt.ioff()
   
   Arguments:
     X:        An ndarray with shape (A,B), (A,B,3), or (A,B,4).
@@ -68,7 +68,7 @@ def viewSlice(X, lo=None, hi=None, gamma=0.5, flipaxes=False):
   # Specifically, if you already have a properly-scaled RGB image with values
   # between 0 and 1, but not necessarily containing pure black, white, red,
   # etc., then you want:
-  viewSlice(bar[:,5,:,18,:], lo=0, hi=0)
+  viewSlice(bar[:,5,:,18,:], lo=0, hi=1)
   """
   scalar = (len(X.shape) == 2)
   rgb = (len(X.shape) == 3 and (X.shape[2] == 3 or X.shape[2] == 4))
@@ -97,9 +97,9 @@ def stackToVideo(X, t=0.1, lo=None, hi=None,
   
   This function assumes that a matplotlib figure is already open.  If not,
   you can force a new one by calling
-  rawviewer.plt.ion()
+    miview.plt.ion()
   before your first call to stackToVideo().  You may (and should) then call
-  rawviewer.plt.ioff()
+    miview.plt.ioff()
   
   You can stop the video at any time by hitting ctrl-C.
   
