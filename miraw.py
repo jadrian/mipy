@@ -186,7 +186,10 @@ def loadRawWithSizeInfo(f, sizefile=None, dtype=None, cropped=None,
   if not isValidDimorder(dimorder):
     raise ValueError('"%s" is not a valid dimorder argument.' % repr(dimorder))
   
-  sz = np.take(sz, dimorderToDimmap(dimorder), axis=0)
+  if threeD:
+    sz = sz[0:3]
+  else:
+    sz = np.take(sz, dimorderToDimmap(dimorder), axis=0)
   return (ndcopyWithOrder(raw.reshape(sz, order=diskorder), memorder), cfg)
 
 
@@ -343,7 +346,8 @@ def rawToNifti(infile, sizefile=None, outfile=None, dimorder=None,
   
   Arguments:
     infile:    filename of a raw file.
-    sizefile:  filename of a size_info config file.
+    sizefile:  filename of a size_info config file.  If None, attempts to find
+               this file in the same directory as infile.
     outfile:   filename (including .nii) of the NIfTI file to generate.
                If None, it will be generated from infile.
     dimorder:  Four-character string that is a permutation of "XYZI",
