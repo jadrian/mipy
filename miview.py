@@ -164,16 +164,18 @@ def stackToVideo(X, t=0.1, lo=None, hi=None,
     XT = X.transpose(dims[1], dims[0], dims[2], 3)
   scale = colors.Normalize(lo, hi, clip=True)
   scale.autoscale_None(X)
+  ax = plt.gca()
   if scalar:
     gmap = colors.LinearSegmentedColormap('anon',greymap_with_gamma,gamma=gamma)
-    img = plt.imshow(XT[:,:,0],
-                     norm=scale,
-                     cmap=gmap,
-                     origin='lower',
-                     interpolation='nearest')
+    img = ax.imshow(XT[:,:,0],
+                    norm=scale,
+                    cmap=gmap,
+                    origin='lower',
+                    interpolation='nearest')
     for z in range(XT.shape[2]):
       try:
         img.set_data(XT[:,:,z])
+        ax.set_title(z)
         plt.draw()
         time.sleep(t)
       except KeyboardInterrupt:
@@ -181,10 +183,10 @@ def stackToVideo(X, t=0.1, lo=None, hi=None,
         plt.draw()
         break
   else:
-    img = plt.imshow(XT[:,:,0],
-                     norm=scale,
-                     origin='lower',
-                     interpolation='nearest')
+    img = ax.imshow(XT[:,:,0],
+                    norm=scale,
+                    origin='lower',
+                    interpolation='nearest')
     for z in range(XT.shape[2]):
       try:
         img.set_data(XT[:,:,z,:])
