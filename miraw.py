@@ -1,7 +1,16 @@
 import numpy as np
 import os.path
-from _miraw_helpers import *
-from nibabel import nifti1
+from mipy._miraw_helpers import *
+try:
+  from nibabel import nifti1
+  has_nifti = True
+except ImportError:
+  import warnings
+  w = """You don't have nibabel installed, so reading and writing nifti files
+won't be supported for you.  nibabel exists for both Python 2 and 3, though,
+so look into installing it."""
+  warnings.warn(w, RuntimeWarning)
+  has_nifti = False
 
 """Functions for dealing with raw medical imaging datasets.
 
@@ -340,61 +349,62 @@ def parseBvecs(f):
   return (vecs, b)
 
 
-def rawToNifti(infile, sizefile=None, outfile=None, dimorder=None,
-               mapper=None, diskorder='F', dtype=None, split4=False):
-  """Convert a raw file to a NIfTI file.
-  
-  Arguments:
-    infile:    filename of a raw file.
-    sizefile:  filename of a size_info config file.  If None, attempts to find
-               this file in the same directory as infile.
-    outfile:   filename (including .nii) of the NIfTI file to generate.
-               If None, it will be generated from infile.
-    dimorder:  Four-character string that is a permutation of "XYZI",
-               indicating the dimension order of the image in "infile".
-                 The purpose of this argument is to rearrange the order of the
-               dimensions in the infile to match the NIfTI canonical order of
-               (X, Y, Z, I), where I is the dimension along which multiple
-               acquisitions are concatenated.
-                 The default value, None, is equivalent to "XYZI".
-                 Note that this argument will be overridden if the size_info
-               file contains a "dimension_order" value.
-    diskorder: A string, 'F' or 'C', representing the order in which the data
-               values are stored in the raw file.
-    dtype:     the numpy dtype for the infile.  If None, it is inferred from
-               infile's extension.
-    split4:    If True, output numbered 3-D images from 4-D input.
-  """
-  (raw, cfg) = loadRawWithSizeInfo(infile, sizefile=sizefile, dtype=dtype,
-                                   dimorder=dimorder, diskorder=diskorder,
-                                   memorder='C')
-  vox_sz = cfg['voxel_size_(mm)']
-  
-  # Rearrange dimensions.
-  try:
-    dimorder = cfg['dimension_order']
-  except KeyError:
-    if dimorder is None:
-      dimorder = DIM_DEFAULT_ORDER
-  if not isValidDimorder(dimorder):
-    raise ValueError('"%s" is not a valid dimorder argument.' % repr(dimorder))
-  raw_transp = raw.transpose(dimorderToReverseDimmap(dimorder))
-  
-  if split4 and len(raw_transp.shape) == 4:
-    raw_stack = [raw_transp[:,:,:,i] for i in range(raw_transp.shape[3])]
-  else:
-    raw_stack = [raw_transp]
-  i = 0
-  for img in raw_stack:
-    nii = nifti1.Nifti1Pair(img, np.diag(vox_sz + [0.0]))
-    nii.get_header().set_xyzt_units('mm')
-    outfname = outfile
-    if outfname is None:
-      outfname = os.path.splitext(infile)[0] + '.nii'
-    if split4:
-      outfname = os.path.splitext(outfname)[0] + ('_%03i.nii' % i)
-      i += 1
-    nifti1.save(nii, outfname)
+if has_nifti:
+  def rawToNifti(infile, sizefile=None, outfile=None, dimorder=None,
+                mapper=None, diskorder='F', dtype=None, split4=False):
+    """Convert a raw file to a NIfTI file.
+    
+    Arguments:
+      infile:    filename of a raw file.
+      sizefile:  filename of a size_info config file.  If None, attempts to find
+                this file in the same directory as infile.
+      outfile:   filename (including .nii) of the NIfTI file to generate.
+                If None, it will be generated from infile.
+      dimorder:  Four-character string that is a permutation of "XYZI",
+                indicating the dimension order of the image in "infile".
+                  The purpose of this argument is to rearrange the order of the
+                dimensions in the infile to match the NIfTI canonical order of
+                (X, Y, Z, I), where I is the dimension along which multiple
+                acquisitions are concatenated.
+                  The default value, None, is equivalent to "XYZI".
+                  Note that this argument will be overridden if the size_info
+                file contains a "dimension_order" value.
+      diskorder: A string, 'F' or 'C', representing the order in which the data
+                values are stored in the raw file.
+      dtype:     the numpy dtype for the infile.  If None, it is inferred from
+                infile's extension.
+      split4:    If True, output numbered 3-D images from 4-D input.
+    """
+    (raw, cfg) = loadRawWithSizeInfo(infile, sizefile=sizefile, dtype=dtype,
+                                    dimorder=dimorder, diskorder=diskorder,
+                                    memorder='C')
+    vox_sz = cfg['voxel_size_(mm)']
+    
+    # Rearrange dimensions.
+    try:
+      dimorder = cfg['dimension_order']
+    except KeyError:
+      if dimorder is None:
+        dimorder = DIM_DEFAULT_ORDER
+    if not isValidDimorder(dimorder):
+      raise ValueError('"%s" is not a valid dimorder argument.'%repr(dimorder))
+    raw_transp = raw.transpose(dimorderToReverseDimmap(dimorder))
+    
+    if split4 and len(raw_transp.shape) == 4:
+      raw_stack = [raw_transp[:,:,:,i] for i in range(raw_transp.shape[3])]
+    else:
+      raw_stack = [raw_transp]
+    i = 0
+    for img in raw_stack:
+      nii = nifti1.Nifti1Pair(img, np.diag(vox_sz + [0.0]))
+      nii.get_header().set_xyzt_units('mm')
+      outfname = outfile
+      if outfname is None:
+        outfname = os.path.splitext(infile)[0] + '.nii'
+      if split4:
+        outfname = os.path.splitext(outfname)[0] + ('_%03i.nii' % i)
+        i += 1
+      nifti1.save(nii, outfname)
 
 
 def parseConfig(s):
