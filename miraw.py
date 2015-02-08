@@ -201,7 +201,7 @@ def loadRawWithSizeInfo(f, sizefile=None, dtype=None, cropped=None, dimorder=Non
   return (ndcopyWithOrder(raw.reshape(sz, order=diskorder), memorder), cfg)
 
 
-def saveSizeInfo(f, img, vox_sz=(1,1,1), dimorder=None, size_cfg={}, infer_name=True):
+def saveSizeInfo(f, img, vox_sz=(1,1,1), dimorder=None, size_cfg={}, infer_name=False):
   """Write a size_info metadata file to disk for a given array.
   
   A size_info file stores image (array) dimensions for raw images, as well as
@@ -414,7 +414,8 @@ if has_nifti:
     
     # Create the size_info config dict.
     cfg = {}
-    cfg['voxel_size_(mm)']             = np.diag(niftiGetXform(header))[:3]
+    vox_sz = np.abs(np.diag(niftiGetXform(header))[:3])
+    cfg['voxel_size_(mm)']             = vox_sz.flatten().tolist()
     cfg['full_image_size_(voxels)']    = raw.shape[:3]
     cfg['low_end_crop_(voxels)']       = [0,0,0]
     cfg['cropped_image_size_(voxels)'] = cfg['full_image_size_(voxels)']
