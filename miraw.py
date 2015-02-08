@@ -97,9 +97,9 @@ def saveRaw(f, X, order='F', dtype_as_ext=False):
   first index, rather than the last index ("C-ordered", numpy's default).
   
   Arguments:
-    f:     An open file object or a filename.
-    X:     A numpy ndarray, with any shape and storage order.
-    order: 'F' or 'C' --- the order for storage on disk.
+    f:            An open file object or a filename.
+    X:            A numpy ndarray, with any shape and storage order.
+    order:        'F' or 'C' --- the order for storage on disk.
     dtype_as_ext: If "True" and f is a string, appends the dtype as an
                   extensions for the filename.  Raises TypeError if True and
                   f is not a string.
@@ -112,8 +112,7 @@ def saveRaw(f, X, order='F', dtype_as_ext=False):
   X.flatten(order=order).tofile(f)
 
 
-def loadRawWithSizeInfo(f, sizefile=None, dtype=None, cropped=None,
-                        dimorder=None, diskorder='F', memorder='C'):
+def loadRawWithSizeInfo(f, sizefile=None, dtype=None, cropped=None, dimorder=None, diskorder='F', memorder='C'):
   """Loads a raw image file from disk, using a size_info metadata file.
   
   Arguments:
@@ -202,8 +201,7 @@ def loadRawWithSizeInfo(f, sizefile=None, dtype=None, cropped=None,
   return (ndcopyWithOrder(raw.reshape(sz, order=diskorder), memorder), cfg)
 
 
-def saveSizeInfo(f, img, vox_sz=(1,1,1), dimorder=None, size_cfg={},
-                 infer_name=True):
+def saveSizeInfo(f, img, vox_sz=(1,1,1), dimorder=None, size_cfg={}, infer_name=True):
   """Write a size_info metadata file to disk for a given array.
   
   A size_info file stores image (array) dimensions for raw images, as well as
@@ -213,7 +211,7 @@ def saveSizeInfo(f, img, vox_sz=(1,1,1), dimorder=None, size_cfg={},
   separately from that of the fourth.
   
   Arguments:
-    f:          An open file handle or a filename.
+    f:          An open file handle or a filename for the destination file.
     img:        A numpy.ndarray.
     vox_sz:     Optional array-like object with 2 or 3 entries.
     dimorder:   Four-character string that is a permutation of "XYZI",
@@ -230,7 +228,7 @@ def saveSizeInfo(f, img, vox_sz=(1,1,1), dimorder=None, size_cfg={},
     size_cfg:   Optional dictionary of other config key-value pairs.  The data
                 stored in this dictionary override all values computed by or
                 passed into this function, even if they're inconsistent with
-                the size of X.  Be careful!  This includes the
+                the size of the image.  Be careful!  This includes the
                 "dimension_order" value, which overrides the dimorder argument
                 above.
     infer_name: Optional boolean.  If True, and f is a filename, then the
@@ -274,7 +272,7 @@ def saveSizeInfo(f, img, vox_sz=(1,1,1), dimorder=None, size_cfg={},
   
   # Overwrite metadata with what the user gave us.
   for (k,v) in size_cfg.items():
-    auto_cfg[k] = a
+    auto_cfg[k] = v
   
   # Now write the key-value pairs and we're done!
   def spaceSepStr(a):
@@ -350,34 +348,196 @@ def parseBvecs(f):
 
 
 if has_nifti:
-  def rawToNifti(infile, sizefile=None, outfile=None, dimorder=None,
-                mapper=None, diskorder='F', dtype=None, split4=False):
+  def readNifti(infile, dimorder=None, dtype=None, memorder=None):
+    """Read a NIfTI file into a numpy array.
+    
+    Arguments:
+      infile:    Filename of a NIfTI file, or a list of strings.  The list
+                 indicates a sequence of files to be concatenated together,
+                 in the order given, in the I dimension (the 4th dimension).
+      dimorder:  Four-character string that is a permutation of "XYZI",
+                 indicating the dimension order desired for the returned image.
+                 Note that the dimension permutation happens *after*
+                 concatenation of multiple images; images are always catted
+                 in the I dimension.
+                   The NIfTI standard states that images are always stored on
+                 disk in XYZI order, with X the fastest-changing index, so this
+                 function provides no way to specify a different dimension order
+                 for the data read from disk.
+      dtype:     A numpy data type to cast to.  If None, the data type remains
+                 whatever the NIfTI header specifies.
+      memorder:  'F' or 'C' --- the order for storage in memory.  If None, the
+                 order remains whatever the NIfTI library read it as (most
+                 likely 'F', the standard layout order for NIfTI).
+    
+    Returns (vol, cfg, header) where vol is a numpy ndarray, cfg is a dict
+    storing information that you would find in a size_info file, and header is
+    the NIfTI header of infile (or of the first-listed file, with the fourth
+    dimension size changed).
+    """
+    if dimorder is None:
+      dimorder = DIM_DEFAULT_ORDER
+    if not isValidDimorder(dimorder):
+      raise ValueError('"%s" is not a valid dimorder argument.' % repr(dimorder))
+    
+    if isinstance(infile, str):
+      # Read this one file.
+      nii = nifti1.load(infile)
+      raw = nii.get_data()
+      header = nii.header
+    elif isinstance(infile, list):
+      # Read a list of files: first read in file 0...
+      nii = nifti1.load(infile[0])
+      raw = nii.get_data()
+      header = nii.header
+      raw.resize(raw.shape + (1,)*(4-raw.ndim))
+      # ... then concatenate on each other one.
+      for i in range(1, len(infile)):
+        nii = nifti1.load(infile[i])
+        newraw = nii.get_data()
+        newraw.resize(newraw.shape + (1,)*(4-newraw.ndim))
+        raw = np.concatenate((raw, newraw), axis=3)
+      header.set_data_shape(raw.shape)
+    else:
+      raise ValueError('"%s" is not a valid infile argument.' % repr(infile))
+    
+    curr_dtype = raw.dtype
+    if np.isfortran(raw):
+      curr_memorder = "F"
+    else:
+      curr_memorder = "C"
+    
+    if dtype is None:
+      dtype = curr_dtype
+    if memorder is None:
+      memorder = curr_memorder
+    
+    # Create the size_info config dict.
+    cfg = {}
+    cfg['voxel_size_(mm)']             = np.diag(niftiGetXform(header))[:3]
+    cfg['full_image_size_(voxels)']    = raw.shape[:3]
+    cfg['low_end_crop_(voxels)']       = [0,0,0]
+    cfg['cropped_image_size_(voxels)'] = cfg['full_image_size_(voxels)']
+    cfg['num_dwis']                    = raw.shape[3]
+    cfg['dimension_order']             = dimorder
+    
+    # Convert to the requested dimorder, dtype, and memorder.
+    dimmap = dimorderToDimmap(dimorder)
+    raw_transp = raw.transpose(dimmap).astype(dtype, order=memorder)
+    
+    return (raw_transp, cfg, header)
+  
+  
+  def niftiGetXform(hdr):
+    """Extracts a single 4x4 transform matrix from a NIfTI header object.
+    """
+    (qform, qcode) = hdr.get_qform(True)
+    (sform, scode) = hdr.get_sform(True)
+    if qcode + scode == 0:
+      # Neither gave us an answer.
+      return np.eye(4)
+    elif scode == 1:
+      # We prefer the sform, since it can represent an affine matrix, so we
+      # return it even if qform is also defined.
+      return sform
+    else:
+      return qform
+  
+  
+  def niftiToRaw(infile, outfile=None, sizefile=None, dimorder=None, diskorder='F', dtype=None, dtype_as_ext=False):
+    """Convert a NIfTI file (or set of files) to a raw file.
+    
+    Arguments:
+      infile:       Filename of a NIfTI file, or a list of strings.  The list
+                    indicates a sequence of files to be concatenated together,
+                    in the order given, along dimension 4 (where 1 is the
+                    fastest-changing).
+      outfile:      Filename of a raw file to generate.  If None, the filename
+                    will be copied from infile, but with an extension indicating
+                    the dtype.  See also dtype_as_ext.
+      sizefile:     Filename of a size_info metadata file.  If None, it will go
+                    in the same directory as outfile.  If empty string, no
+                    size_info file will be generated.
+      dimorder:     Four-character string that is a permutation of "XYZI",
+                    indicating the desired dimension order of the output image.
+                      The default value, None, is equivalent to "XYZI".
+      diskorder:    'F' or 'C' --- the order for storage on disk.
+      dtype:        A numpy data type to cast to.  If None, the data type
+                    either remains whatever the NIfTI header specifies, or is
+                    cast to the type specified by the extension on outfile.
+      dtype_as_ext: If True, and if outfile is not None, then this appends the
+                    dtype to the end of outfile.
+    """
+    # Figure out the desired dtype.
+    fname_dtype = None
+    try:
+      fname_dtype = inferDtypeFromFilename(outfile)
+    except:
+      pass
+    
+    if dtype is not None and fname_dtype is not None:
+      if fname_dtype != np.dtype(dtype):
+        raise ValueError("Arguments specify contradictory dtypes:\n  outfile: {}\n  dtype:   {}".format(outfile, dtype))
+    elif dtype is None:
+      dtype = fname_dtype
+    
+    # Now either dtype is None, because both the outfile and dtype arguments
+    # failed to set it, or it and the outfile agree.  If it's None, then we'll
+    # just keep the dtype from the NIfTI file.
+    
+    # Read the file and set the dtype once and for all.
+    (img, cfg, header) = readNifti(infile, dimorder, dtype)
+    dtype = img.dtype
+    
+    # Generate new names for the output files as necessary.
+    if outfile is None:
+      if not isinstance(infile, str):
+        raise ValueError("No outfile specified, but infile %s is not a string!" % repr(infile))
+      (base, ext) = os.path.splitext(infile)
+      if ext == ".gz":
+        (base, ext) = os.path.splitext(base)
+      outfile = base + "." + str(dtype)
+    elif dtype_as_ext:
+      outfile += "." + str(dtype)
+    
+    if sizefile is None:
+      sizefile = os.path.join(os.path.dirname(outfile), "size_info")
+    
+    # Write the size_info file.
+    if len(sizefile) > 0:
+      saveSizeInfo(sizefile, img, size_cfg=cfg, infer_name=False)
+    
+    # And finally write the raw file.
+    saveRaw(outfile, img, diskorder, dtype_as_ext)
+  
+  
+  def rawToNifti(infile, sizefile=None, outfile=None, dimorder=None, diskorder='F', dtype=None, split4=False):
     """Convert a raw file to a NIfTI file.
     
     Arguments:
-      infile:    filename of a raw file.
-      sizefile:  filename of a size_info config file.  If None, attempts to find
-                this file in the same directory as infile.
-      outfile:   filename (including .nii) of the NIfTI file to generate.
-                If None, it will be generated from infile.
+      infile:    Filename of a raw file.
+      sizefile:  Filename of a size_info config file.  If None, attempts to find
+                 this file in the same directory as infile.
+      outfile:   Filename (including .nii) of the NIfTI file to generate.
+                 If None, it will be generated from infile.
       dimorder:  Four-character string that is a permutation of "XYZI",
-                indicating the dimension order of the image in "infile".
-                  The purpose of this argument is to rearrange the order of the
-                dimensions in the infile to match the NIfTI canonical order of
-                (X, Y, Z, I), where I is the dimension along which multiple
-                acquisitions are concatenated.
-                  The default value, None, is equivalent to "XYZI".
-                  Note that this argument will be overridden if the size_info
-                file contains a "dimension_order" value.
+                 indicating the dimension order of the image in "infile".
+                   The purpose of this argument is to rearrange the order of the
+                 dimensions in the infile to match the NIfTI canonical order of
+                 (X, Y, Z, I), where I is the dimension along which multiple
+                 acquisitions are concatenated.
+                   The default value, None, is equivalent to "XYZI".
+                   Note that this argument will be overridden if the size_info
+                 file contains a "dimension_order" value.
       diskorder: A string, 'F' or 'C', representing the order in which the data
-                values are stored in the raw file.
-      dtype:     the numpy dtype for the infile.  If None, it is inferred from
-                infile's extension.
+                 values are stored in the raw file.
+      dtype:     The numpy dtype for the infile.  If None, it is inferred from
+                 infile's extension.
       split4:    If True, output numbered 3-D images from 4-D input.
     """
     (raw, cfg) = loadRawWithSizeInfo(infile, sizefile=sizefile, dtype=dtype,
-                                    dimorder=dimorder, diskorder=diskorder,
-                                    memorder='C')
+                                     dimorder=dimorder, diskorder=diskorder,
+                                     memorder='C')
     vox_sz = cfg['voxel_size_(mm)']
     
     # Rearrange dimensions.
@@ -421,7 +581,7 @@ def parseConfig(s):
   (those with no colon) will be silently ignored.
   
   Arguments:
-    s: a string containing the full contents of a config file.
+    s: A string containing the full contents of a config file.
   
   Returns a dictionary mapping strings to lists.  The lists, which may be
   singletons, contain ints, floats, and/or strings.
