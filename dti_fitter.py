@@ -26,7 +26,7 @@ if not os.path.isdir(output_path):
 # We know that this image has its dimensions ordered (X,Y,I,Z), and that the
 # fastest-changing index is the first-listed (Fortran-order on disk).
 DWIs_fname = os.path.join(data_root, 'dwis_cropped.float32')
-(DWIs, size_info) = miraw.loadRawWithSizeInfo(DWIs_fname,
+(DWIs, size_info) = miraw.readRawWithSizeInfo(DWIs_fname,
                                               dimorder='XYIZ',
                                               diskorder='F')
 (grad, bvals) = miraw.parseBvecs('dwi_data/bvecs.txt')
@@ -49,7 +49,7 @@ num_unweighted = num_images - len(bvals)
 DTI_fname = os.path.join(output_path, 'DTI.float32')
 DTI_shape = image_volume + [7]
 if os.path.isfile(DTI_fname):
-  DTI = miraw.loadRaw(DTI_fname, DTI_shape, diskorder='F')
+  DTI = miraw.readRaw(DTI_fname, DTI_shape, diskorder='F')
 else:
   # Compute the flattened-gradient matrix.
   # Each row is [1, -b gx^2, -b gy^2, -b gz^2, -2b gx gy, -2b gx gz, -2b gy gz].
@@ -94,8 +94,8 @@ evecs_shape = image_volume + [3,3]
 evals_fname = os.path.join(output_path, 'evals.float32')
 evals_shape = image_volume + [3]
 if os.path.isfile(evecs_fname) and os.path.isfile(evals_fname):
-  evecs = miraw.loadRaw(evecs_fname, evecs_shape, diskorder='F')
-  evals = miraw.loadRaw(evals_fname, evals_shape, diskorder='F')
+  evecs = miraw.readRaw(evecs_fname, evecs_shape, diskorder='F')
+  evals = miraw.readRaw(evals_fname, evals_shape, diskorder='F')
 else:
   evecs = np.empty(evecs_shape, dtype=np.float32)
   evals = np.empty(evals_shape, dtype=np.float32)
@@ -123,8 +123,8 @@ else:
 FA_fname = os.path.join(output_path, 'FA.float32')
 MD_fname = os.path.join(output_path, 'MD.float32')
 if os.path.isfile(FA_fname) and os.path.isfile(MD_fname):
-  FA = miraw.loadRaw(FA_fname, image_volume, diskorder='F')
-  MD = miraw.loadRaw(MD_fname, image_volume, diskorder='F')
+  FA = miraw.readRaw(FA_fname, image_volume, diskorder='F')
+  MD = miraw.readRaw(MD_fname, image_volume, diskorder='F')
 else:
   MD = np.empty(image_volume, dtype=np.float32)
   FA = np.empty(image_volume, dtype=np.float32)
