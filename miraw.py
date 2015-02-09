@@ -1,6 +1,6 @@
 import numpy as np
 import os.path
-from mipy._miraw_helpers import *
+import mipy._miraw_helpers as _miraw_helpers
 try:
   from nibabel import nifti1
   has_nifti = True
@@ -18,11 +18,11 @@ This module is particularly focused on working with diffusion-weighted images
 and derived images, which are typically 4-D (3 for space, plus one dimension for
 arbitrary sample vectors).  Its default metadata format, "size_info", is a hacky
 thing custom-built just for DWIs, and does not accommodate N-D volumes for N < 3
-or N > 4.  The loadRaw() and saveRaw() functions, however, will work for any N.
+or N > 4.  The readRaw() and saveRaw() functions, however, will work for any N.
 """
 
-def loadRaw(f, shape, dtype=None, diskorder='F', memorder='C'):
-  """Load array data from a raw binary file on disk.
+def readRaw(f, shape, dtype=None, diskorder='F', memorder='C'):
+  """Loads array data from a raw binary file on disk.
   
   This is a wrapper around numpy.fromfile, and returns a numpy.ndarray that
   owns its own memory.  Its particular purpose is to work with differing
@@ -54,7 +54,7 @@ def loadRaw(f, shape, dtype=None, diskorder='F', memorder='C'):
   """
   # Read the data into a flat array.
   if dtype is None:
-    dtype = inferDtypeFromFilename(f)
+    dtype = _miraw_helpers.inferDtypeFromFilename(f)
   raw = np.fromfile(f, dtype=dtype)
   
   # Resolve the shape argument.
@@ -84,7 +84,7 @@ def loadRaw(f, shape, dtype=None, diskorder='F', memorder='C'):
       raise
   
   # Now convert to the memory order and return.
-  return ndcopyWithOrder(X, memorder)
+  return _miraw_helpers.ndcopyWithOrder(X, memorder)
 
 
 def saveRaw(f, X, order='F', dtype_as_ext=False):
@@ -112,7 +112,7 @@ def saveRaw(f, X, order='F', dtype_as_ext=False):
   X.flatten(order=order).tofile(f)
 
 
-def loadRawWithSizeInfo(f, sizefile=None, dtype=None, cropped=None, dimorder=None, diskorder='F', memorder='C'):
+def readRawWithSizeInfo(f, sizefile=None, dtype=None, cropped=None, dimorder=None, diskorder='F', memorder='C'):
   """Loads a raw image file from disk, using a size_info metadata file.
   
   Arguments:
@@ -149,7 +149,7 @@ def loadRawWithSizeInfo(f, sizefile=None, dtype=None, cropped=None, dimorder=Non
     diskorder: The array traversal order of the file.
     memorder:  The desired traversal order of the output array.
   
-  (See loadRaw for more explanation of the last two arguments.)
+  (See readRaw for more explanation of the last two arguments.)
   
   This function attempts, usually successfully, to infer the values of
   arguments left None.
@@ -160,10 +160,10 @@ def loadRawWithSizeInfo(f, sizefile=None, dtype=None, cropped=None, dimorder=Non
   """
   
   # Read the image into a 1-D array.
-  raw = loadRaw(f, (-1,1), dtype=dtype, diskorder=diskorder, memorder=memorder)
+  raw = readRaw(f, (-1,1), dtype=dtype, diskorder=diskorder, memorder=memorder)
   
   # Read the size file.
-  imgname = getFilename(f)
+  imgname = _miraw_helpers.getFilename(f)
   if sizefile is None:
     try:
       sizefile = os.path.join(os.path.dirname(imgname), 'size_info')
@@ -178,7 +178,7 @@ def loadRawWithSizeInfo(f, sizefile=None, dtype=None, cropped=None, dimorder=Non
     n_imgs = 1
   
   # Try to figure out whether the image is cropped.
-  cropped, threeD = detectShapeAndCropping(raw.size,
+  cropped, threeD = _miraw_helpers.detectShapeAndCropping(raw.size,
     np.prod(sz), np.prod(sz_c), n_imgs, cropped)
   if cropped:
     sz = sz_c
@@ -190,15 +190,17 @@ def loadRawWithSizeInfo(f, sizefile=None, dtype=None, cropped=None, dimorder=Non
     dimorder = cfg['dimension_order']
   except KeyError:
     if dimorder is None:
-      dimorder = DIM_DEFAULT_ORDER
-  if not isValidDimorder(dimorder):
+      dimorder = _miraw_helpers.DIM_DEFAULT_ORDER
+  if not _miraw_helpers.isValidDimorder(dimorder):
     raise ValueError('"%s" is not a valid dimorder argument.' % repr(dimorder))
   
   if threeD:
     sz = sz[0:3]
   else:
-    sz = np.take(sz, dimorderToDimmap(dimorder), axis=0)
-  return (ndcopyWithOrder(raw.reshape(sz, order=diskorder), memorder), cfg)
+    sz = np.take(sz, _miraw_helpers.dimorderToDimmap(dimorder), axis=0)
+  return (_miraw_helpers.ndcopyWithOrder(raw.reshape(sz, order=diskorder),
+                                         memorder),
+          cfg)
 
 
 def saveSizeInfo(f, img, vox_sz=(1,1,1), dimorder=None, size_cfg={}, infer_name=False):
@@ -252,10 +254,10 @@ def saveSizeInfo(f, img, vox_sz=(1,1,1), dimorder=None, size_cfg={}, infer_name=
     dimorder = size_cfg['dimension_order']
   except KeyError:
     if dimorder is None:
-      dimorder = DIM_DEFAULT_ORDER
-  if not isValidDimorder(dimorder):
+      dimorder = _miraw_helpers.DIM_DEFAULT_ORDER
+  if not _miraw_helpers.isValidDimorder(dimorder):
     raise ValueError('"%s" is not a valid dimorder argument.' % repr(dimorder))
-  shape = np.take(shape, dimorderToReverseDimmap(dimorder), axis=0).tolist()
+  shape = np.take(shape, _miraw_helpers.dimorderToReverseDimmap(dimorder), axis=0).tolist()
   
   # Extract metadata from the arguments.
   base_keys = ['voxel_size_(mm)', 'full_image_size_(voxels)',
@@ -288,6 +290,76 @@ def saveSizeInfo(f, img, vox_sz=(1,1,1), dimorder=None, size_cfg={}, infer_name=
   
   if close_after:
     fid.close()
+
+
+def applyDimOrder(img, dimorder):
+  """Permutes the data dimensions of img as specified by dimorder.
+  
+  Arguments:
+    img:      numpy ndarray with four dimensions.
+    dimorder: Four-character string that is a permutation of "XYZI",
+              indicating the desired dimension order of the output.
+  
+  Preconditions:
+    - The current dimension order of "img" is "XYZI".
+  
+  Returns new_img:
+    new_img:  numpy ndarray with four dimensions.  The values in new_img will
+              be rearranged so that the dimension order is as specified by
+              dimorder.
+  
+  Note that if you have any metadata about the image, like voxel sizes, the
+  order of values in your metadata will no longer match the order of the
+  dimensions in the output image.  You'll need to rearrange those manually with
+  applyDimOrderToList().
+  """
+  return img.transpose(_miraw_helpers.dimorderToDimmap(dimorder))
+
+
+def applyDimOrderToList(L, dimorder):
+  """Permutes the values in L as specified by dimorder.
+  
+  Arguments:
+    L:        A list of four values, corresponding (respectively) to the
+              X, Y, Z, and I dimensions of some dataset.
+                If you've only got values for X, Y, and Z, pad before calling.
+    dimorder: Four-character string that is a permutation of "XYZI",
+              indicating the desired dimension order of the output.
+  
+  Returns a permuted version of L.
+  """
+  return [L[i] for i in _miraw_helpers.dimorderToDimmap(dimorder)]
+
+
+def undoDimOrder(img, dimorder):
+  """Permutes the data dimensions of img, which currently has the given
+  dimension order, to match the default "XYZI" dimension order.
+  
+  Arguments:
+    img:      numpy ndarray with four dimensions.
+    dimorder: Four-character string that is a permutation of "XYZI",
+              indicating the current dimension order of img.
+  
+  Returns new_img:
+    new_img:  numpy ndarray with four dimensions.  The values in new_img will
+              be rearranged so that the dimension order is XYZI.
+  """
+  return img.transpose(_miraw_helpers.dimorderToReverseDimmap(dimorder))
+
+
+def undoDimOrderOnList(L, dimorder):
+  """Permutes the values in L to restore them to a default dimorder.
+  
+  Arguments:
+    L:        A list of four values, corresponding (in order) to the dimensions
+              of some dataset.
+    dimorder: Four-character string that is a permutation of "XYZI",
+              indicating the current dimension order of the dataset.
+  
+  Returns a permuted version of L, with values corresponding (respectively) to
+  the X, Y, Z, and I.
+  """
+  return [L[i] for i in _miraw_helpers.dimorderToReverseDimmap(dimorder)]
 
 
 def parseBvecs(f):
@@ -323,7 +395,7 @@ def parseBvecs(f):
   else:
     raise TypeError('f argument must be either a string or a file object.')
   
-  lines = cleanlines(string.splitlines())
+  lines = _miraw_helpers.cleanlines(string.splitlines())
   vecs = np.array([[float(y) for y in x.replace(',',' ').split()] for x in lines])
   
   if vecs.shape[0] <= 4:
@@ -348,38 +420,39 @@ def parseBvecs(f):
 
 
 if has_nifti:
-  def readNifti(infile, dimorder=None, dtype=None, memorder=None):
+  def readNifti(infile, dtype=None, memorder=None):
     """Read a NIfTI file into a numpy array.
     
     Arguments:
       infile:    Filename of a NIfTI file, or a list of strings.  The list
                  indicates a sequence of files to be concatenated together,
                  in the order given, in the I dimension (the 4th dimension).
-      dimorder:  Four-character string that is a permutation of "XYZI",
-                 indicating the dimension order desired for the returned image.
-                 Note that the dimension permutation happens *after*
-                 concatenation of multiple images; images are always catted
-                 in the I dimension.
-                   The NIfTI standard states that images are always stored on
-                 disk in XYZI order, with X the fastest-changing index, so this
-                 function provides no way to specify a different dimension order
-                 for the data read from disk.
       dtype:     A numpy data type to cast to.  If None, the data type remains
                  whatever the NIfTI header specifies.
       memorder:  'F' or 'C' --- the order for storage in memory.  If None, the
                  order remains whatever the NIfTI library read it as (most
                  likely 'F', the standard layout order for NIfTI).
     
-    Returns (vol, cfg, header) where vol is a numpy ndarray, cfg is a dict
-    storing information that you would find in a size_info file, and header is
-    the NIfTI header of infile (or of the first-listed file, with the fourth
-    dimension size changed).
-    """
-    if dimorder is None:
-      dimorder = DIM_DEFAULT_ORDER
-    if not isValidDimorder(dimorder):
-      raise ValueError('"%s" is not a valid dimorder argument.' % repr(dimorder))
+    Returns (vol, cfg, header):
+      vol:    numpy ndarray.
+      cfg:    dict storing information that you would find in a size_info file.
+      header: the NIfTI header of infile (or of the first-listed file, with the
+              fourth dimension size changed).
     
+    Note that if the NIfTI header encodes a dimension flip or exchange, this
+    function DOES NOT apply it to the image before returning.  You'll want to
+    check that with niftiGetXform() and perhaps fix it with applyNiftiXform().
+      If you ultimately want a raw volume with a non-standard dimension order,
+    you should apply that AFTER you apply the NIfTI transform, since
+    applyNiftiXform() assumes that the dimension order is precisely as
+    represented in the original raw data from the NIfTI file.
+      Here's the recommended procedure: read, apply the transform, and then
+    remap to the desired dimension order:
+        (vol, cfg, header) = readNifti(fname)
+        (vol, xform, vox_sz) = applyNiftiXform(vol, niftiGetXform(header), cfg)
+        vol = applyDimOrder(vol, dimorder)
+      This procedure is what niftiToRaw() does.
+    """
     if isinstance(infile, str):
       # Read this one file.
       nii = nifti1.load(infile)
@@ -414,19 +487,125 @@ if has_nifti:
     
     # Create the size_info config dict.
     cfg = {}
-    vox_sz = np.abs(np.diag(niftiGetXform(header))[:3])
-    cfg['voxel_size_(mm)']             = vox_sz.flatten().tolist()
+    cfg['voxel_size_(mm)']             = header['pixdim'][1:4].tolist()
     cfg['full_image_size_(voxels)']    = raw.shape[:3]
     cfg['low_end_crop_(voxels)']       = [0,0,0]
     cfg['cropped_image_size_(voxels)'] = cfg['full_image_size_(voxels)']
     cfg['num_dwis']                    = raw.shape[3]
-    cfg['dimension_order']             = dimorder
+    cfg['dimension_order']             = _miraw_helpers.DIM_DEFAULT_ORDER
     
-    # Convert to the requested dimorder, dtype, and memorder.
-    dimmap = dimorderToDimmap(dimorder)
-    raw_transp = raw.transpose(dimmap).astype(dtype, order=memorder)
+    return (raw.astype(dtype, order=memorder), cfg, header)
+  
+  
+  def applyNiftiXform(img, xform, cfg=None):
+    """Flips and exchanges dimensions in the given raw image according to a
+    NIfTI-style 4x4 transform matrix.  The resulting image should conform to
+    the NIfTI standard interpretation: the fastest-changing index is X, going
+    left to right; the next-fastest is Y, going posterior to anterior, and the
+    slowest is Z, going inferior to superior.
     
-    return (raw_transp, cfg, header)
+    Arguments:
+      img:   numpy.ndarray with at least three dimensions.
+      xform: 4x4 numpy array.  xform[:3][:3] must contain exactly three nonzero
+             entries, one on each row.
+      cfg:   Optional dictionary of image metadata.
+    
+    Returns (new_img, new_xform, vox_sz, cfg):
+      new_img:   Transformed image.
+      new_xform: Modified transform.  new_xform[:3,:3] is diagonal with positive
+                 entries.
+      vox_sz:    Length-3 numpy vector of positive voxel sizes.
+    
+    If cfg is provided, this function overwrites the values for the following
+    keys:
+      'voxel_size_(mm)'             -> Voxel size with new dimension order.
+      'full_image_size_(voxels)'    -> Image size with new dimension order.
+      'low_end_crop_(voxels)'       -> [0,0,0]
+      'cropped_image_size_(voxels)' -> (Same as full image size)
+      'num_dwis'                    -> Size of 4th dimension (shouldn't change).
+      'dimension_order'             -> "XYZI"
+    
+    In the case of a transform that has an oblique rotation or affine component,
+    this function raises a ValueError.
+    """
+    # According to the NIfTI spec*, the xform applies by left-multiplication to
+    # the column vector [i,j,k,1]' to specify how spatial coordinates [x,y,z]'
+    # may be computed from the raw image indices:
+    #   [ s_x[0], s_x[1], s_x[2], s_x[3] ]   [ i ]   [ x ]
+    #   [ s_y[0], s_y[1], s_y[2], s_y[3] ] * [ j ] = [ y ]
+    #   [ s_z[0], s_z[1], s_z[2], s_z[3] ]   [ k ]   [ z ]
+    #                                        [ 1 ]
+    # For example, this matrix
+    #   [  0 -3  0  0 ]
+    #   [  0  0  5  0 ]
+    #   [ -4  0  0  0 ]
+    # means that
+    #   j encodes the x direction, with an x-flip and a voxel size of 3
+    #   k encodes the y direction, with no y-flip and a voxel size of 5
+    #   i encodes the z direction, with a  z-flip and a voxel size of 4
+    # In other words, the dimension order is ZXY.
+    # 
+    # * http://nifti.nimh.nih.gov/nifti-1/documentation/nifti1fields/nifti1fields_pages/srow.html
+    
+    if xform.shape != (4,4):
+      raise ValueError('xform must be 4x4.')
+    
+    # --- First, exchange dimensions as specified. ---
+    # Turn all nonzero entries in the upper part to ones.
+    perm = np.array(np.abs(xform[:3,:3]) > 1e-6, dtype=int)
+    dim_map = np.nonzero(perm)[1]
+    # dim_map[d] says which column of perm is nonzero in row d.  In context,
+    # dim_map[d] indicates which volume index encodes direction d.  For example,
+    # dim_map = [1,2,0] means that j (index=1) encodes x (d=0), k encodes y, and
+    # i encodes z.
+    
+    if dim_map.size != 3:
+      # There should be exactly three nonzero entries in the upper-left 3x3
+      # portion of the transform matrix.
+      # TODO Add support for affine transforms.
+      raise ValueError('Bad transform --- too many nonzero entries.\n%s', repr(xform))
+    
+    # Tack on extra un-permuted entries for any non-spatial dimensions.
+    dim_map = dim_map.tolist() + list(range(3,img.ndim))
+    
+    # N-D transpose so that direction d is encoded by index d, for all d.
+    new_img = img.transpose(dim_map)
+    
+    # Permute the xform matrix to match.
+    perm = np.pad(perm, ((0,1),(0,1)), mode='constant')
+    perm[3,3] = 1
+    new_xform = xform.dot(perm.transpose())
+    
+    # The result here should be:
+    #  - new_img has had its dimensions rearranged appropriately.
+    #  - new_xform[:3,:3] is a diagonal matrix of (possibly negative) voxel sizes.
+    off_diag = np.nonzero((np.ones((3,3))-np.eye(3))*new_xform[:3,:3])[0].size
+    if off_diag != 0:
+      raise ValueError('The transformation failed.  This should never happen!')
+    
+    # --- Now flip axes as specified. ---
+    vox_sz = np.diag(new_xform[:3,:3]).tolist()
+    for d in range(3):
+      if vox_sz[d] < 0.0:
+        # To reverse a specified dimension, we need to swap it with dimension
+        # zero, flip it, and then swap back.  Further explanation:
+        # http://stackoverflow.com/questions/13240117/reverse-an-arbitrary-dimension-in-an-ndarray
+        new_img = new_img.swapaxes(d, 0)
+        new_img = new_img[::-1, ...]
+        vox_sz[d] *= -1.0
+        new_xform[d,d] *= -1.0
+        new_xform[d,3] = new_xform[d,3] - (new_img.shape[0] * vox_sz[d])
+        new_img = new_img.swapaxes(0, d)
+    
+    if cfg is not None:
+      cfg['voxel_size_(mm)']             = vox_sz
+      cfg['full_image_size_(voxels)']    = new_img.shape[:3]
+      cfg['low_end_crop_(voxels)']       = [0,0,0]
+      cfg['cropped_image_size_(voxels)'] = new_img.shape[:3]
+      cfg['num_dwis']                    = new_img.shape[3]
+      cfg['dimension_order']             = _miraw_helpers.DIM_DEFAULT_ORDER
+    
+    return (new_img, new_xform, vox_sz)
   
   
   def niftiGetXform(hdr):
@@ -469,10 +648,15 @@ if has_nifti:
       dtype_as_ext: If True, and if outfile is not None, then this appends the
                     dtype to the end of outfile.
     """
+    if dimorder is None:
+      dimorder = _miraw_helpers.DIM_DEFAULT_ORDER
+    if not _miraw_helpers.isValidDimorder(dimorder):
+      raise ValueError('"%s" is not a valid dimorder argument.' % repr(dimorder))
+    
     # Figure out the desired dtype.
     fname_dtype = None
     try:
-      fname_dtype = inferDtypeFromFilename(outfile)
+      fname_dtype = _miraw_helpers.inferDtypeFromFilename(outfile)
     except:
       pass
     
@@ -487,8 +671,14 @@ if has_nifti:
     # just keep the dtype from the NIfTI file.
     
     # Read the file and set the dtype once and for all.
-    (img, cfg, header) = readNifti(infile, dimorder, dtype)
+    (img, cfg, header) = readNifti(infile, dtype)
     dtype = img.dtype
+    
+    # Apply any dimension flips or permutations according to the header.
+    (img, xform, vox_sz) = applyNiftiXform(img, niftiGetXform(header), cfg)
+    
+    # And finally put the data in the requested storage order.
+    img = applyDimOrder(img, dimorder)
     
     # Generate new names for the output files as necessary.
     if outfile is None:
@@ -536,7 +726,7 @@ if has_nifti:
                  infile's extension.
       split4:    If True, output numbered 3-D images from 4-D input.
     """
-    (raw, cfg) = loadRawWithSizeInfo(infile, sizefile=sizefile, dtype=dtype,
+    (raw, cfg) = readRawWithSizeInfo(infile, sizefile=sizefile, dtype=dtype,
                                      dimorder=dimorder, diskorder=diskorder,
                                      memorder='C')
     vox_sz = cfg['voxel_size_(mm)']
@@ -546,10 +736,10 @@ if has_nifti:
       dimorder = cfg['dimension_order']
     except KeyError:
       if dimorder is None:
-        dimorder = DIM_DEFAULT_ORDER
-    if not isValidDimorder(dimorder):
+        dimorder = _miraw_helpers.DIM_DEFAULT_ORDER
+    if not _miraw_helpers.isValidDimorder(dimorder):
       raise ValueError('"%s" is not a valid dimorder argument.'%repr(dimorder))
-    raw_transp = raw.transpose(dimorderToReverseDimmap(dimorder))
+    raw_transp = raw.transpose(_miraw_helpers.dimorderToReverseDimmap(dimorder))
     
     if split4 and len(raw_transp.shape) == 4:
       raw_stack = [raw_transp[:,:,:,i] for i in range(raw_transp.shape[3])]
@@ -621,243 +811,4 @@ def readConfigFile(filename):
   s = fid.read()
   fid.close()
   return parseConfig(s)
-
-
-############
-# The following is a runtime bugfix for older versions of numpy that don't
-# support an "order" argument to either of the numpy "copy()" functions: neither
-# to the plain numpy.copy(), nor to the copy() member function of ndarray
-# objects.  This bug is confirmed in numpy 1.5.1 (on Python 2.7) and is fixed
-# in numpy 1.8.0 (on Python 2.7 and 3.3).
-
-try:
-  import numpy.random
-  X = numpy.random.random((5,3,4))
-  Y = X.copy(order="F")
-  ndcopyWithOrder = ndcopyUsesOrder
-except TypeError:
-  import warnings
-  w = "\n  Your current numpy version is " + str(numpy.__version__) + "." + """
-  This numpy version does not support an 'order'
-argument to ndarry.copy().  Please update numpy
-to a version >= 1.8.0.
-  miraw.loadRaw() and miraw.loadRawWithSizeInfo()
-will not be able to use custom memory orders; the
-'memorder' keyword argument will be silently
-ignored.
-"""
-  warnings.warn(w, RuntimeWarning, stacklevel=2)
-  ndcopyWithOrder = ndcopyIgnoreOrder
-
-# End fix for stupid numpy bug.
-############
-
-
-# Test suite: run the module directly to test it.
-if __name__ == "__main__":
-  print("""
-Running test suite for miraw.  Note that part of this test suite involves
-manually confirming that the contents of binary files written to disk are
-correct; you'll need a hex editor for this.
-  If you're an end user, you probably didn't mean to run this test suite.  If
-you just wanted to use the miraw tools, you should just import miraw directly:
-    from mipy import miraw
-"""[1:])
-  import struct, sys, binascii
-  from pprint import pprint as pp
-  
-  def hexStrToFloat_str_decode(s):
-    return struct.unpack('!f', s.decode('hex'))[0]
-  
-  def floatToHexStr_str_encode(v):
-    return struct.pack('!f', v).encode('hex')
-  
-  def hexStrToFloat_bytes_fromhex(s):
-    return struct.unpack('!f', bytes.fromhex(s))[0]
-  
-  def floatToHexStr_binascii(v):
-    return str(binascii.hexlify(struct.pack('!f', v)), 'ascii')
-  
-  if hasattr(str, 'decode') and hasattr(str, 'decode'):
-    # Python 2.x: str.decode.
-    hexStrToFloat = hexStrToFloat_str_decode
-    floatToHexStr = floatToHexStr_str_encode
-  elif hasattr(bytes, 'fromhex'):
-    # Python 3.x: bytes.fromhex.
-    hexStrToFloat = hexStrToFloat_bytes_fromhex
-    floatToHexStr = floatToHexStr_binascii
-  else:
-    raise NameError('No known valid hex-to-float conversion method.')
-  
-  # Our raw file's dimension order is (I,X,Z,Y), just to be obnoxious.
-  # Extents are (X,Y,Z,I) = (2,3,4,5).
-  true_dimorder = "IXZY"
-  true_extents = (5,2,4,3)
-  raw = np.ndarray(true_extents, dtype=np.float32, order='C')
-  for i in range(raw.shape[0]):
-    for z in range(raw.shape[2]):
-      for y in range(raw.shape[3]):
-        for x in range(raw.shape[1]):
-          # Store hex value 'BxByBzBi' for each voxel's x, y, z, i coords.
-          raw[i,x,z,y] = hexStrToFloat('b'+'b'.join([str(j) for j in [x,y,z,i]]))
-  
-  def flatHexList(X):
-    return [floatToHexStr(p) for p in X.flat]
-  
-  def printLongList(L, c=8):
-    i = 0
-    for p in L:
-      sys.stdout.write(" " + p)
-      i += 1
-      if i % c == 0:
-        sys.stdout.write("\n")
-    if i % c != 0:
-      sys.stdout.write("\n")
-  
-  raw_hexdump = flatHexList(raw)
-  # Since raw is in C-style order (last index is fastest-changing), the
-  # Y index changes fastest, then Z, then X, then I.  So the flat order is:
-  expected_hexdump = [
-    "b0b0b0b0", "b0b1b0b0", "b0b2b0b0", "b0b0b1b0", "b0b1b1b0", "b0b2b1b0", "b0b0b2b0", "b0b1b2b0", "b0b2b2b0", "b0b0b3b0", "b0b1b3b0", "b0b2b3b0",
-    "b1b0b0b0", "b1b1b0b0", "b1b2b0b0", "b1b0b1b0", "b1b1b1b0", "b1b2b1b0", "b1b0b2b0", "b1b1b2b0", "b1b2b2b0", "b1b0b3b0", "b1b1b3b0", "b1b2b3b0",
-    "b0b0b0b1", "b0b1b0b1", "b0b2b0b1", "b0b0b1b1", "b0b1b1b1", "b0b2b1b1", "b0b0b2b1", "b0b1b2b1", "b0b2b2b1", "b0b0b3b1", "b0b1b3b1", "b0b2b3b1",
-    "b1b0b0b1", "b1b1b0b1", "b1b2b0b1", "b1b0b1b1", "b1b1b1b1", "b1b2b1b1", "b1b0b2b1", "b1b1b2b1", "b1b2b2b1", "b1b0b3b1", "b1b1b3b1", "b1b2b3b1",
-    "b0b0b0b2", "b0b1b0b2", "b0b2b0b2", "b0b0b1b2", "b0b1b1b2", "b0b2b1b2", "b0b0b2b2", "b0b1b2b2", "b0b2b2b2", "b0b0b3b2", "b0b1b3b2", "b0b2b3b2",
-    "b1b0b0b2", "b1b1b0b2", "b1b2b0b2", "b1b0b1b2", "b1b1b1b2", "b1b2b1b2", "b1b0b2b2", "b1b1b2b2", "b1b2b2b2", "b1b0b3b2", "b1b1b3b2", "b1b2b3b2",
-    "b0b0b0b3", "b0b1b0b3", "b0b2b0b3", "b0b0b1b3", "b0b1b1b3", "b0b2b1b3", "b0b0b2b3", "b0b1b2b3", "b0b2b2b3", "b0b0b3b3", "b0b1b3b3", "b0b2b3b3",
-    "b1b0b0b3", "b1b1b0b3", "b1b2b0b3", "b1b0b1b3", "b1b1b1b3", "b1b2b1b3", "b1b0b2b3", "b1b1b2b3", "b1b2b2b3", "b1b0b3b3", "b1b1b3b3", "b1b2b3b3",
-    "b0b0b0b4", "b0b1b0b4", "b0b2b0b4", "b0b0b1b4", "b0b1b1b4", "b0b2b1b4", "b0b0b2b4", "b0b1b2b4", "b0b2b2b4", "b0b0b3b4", "b0b1b3b4", "b0b2b3b4",
-    "b1b0b0b4", "b1b1b0b4", "b1b2b0b4", "b1b0b1b4", "b1b1b1b4", "b1b2b1b4", "b1b0b2b4", "b1b1b2b4", "b1b2b2b4", "b1b0b3b4", "b1b1b3b4", "b1b2b3b4"
-  ]
-  if raw_hexdump == expected_hexdump:
-    print("[ PASS ]  Raw memory layout is as expected.")
-  else:
-    print("[ FAIL ]  Raw memory layout does not match expectation:")
-    print("          Observed:")
-    printLongList(raw_hexdump)
-    print("          Expected:")
-    printLongList(expected_hexdump)
-  print()
-  
-  raw_dest = '/tmp/miraw_test_raw'
-  size_info_dest = '/tmp/size_info'
-  
-  saveRaw(raw_dest, raw, order='F', dtype_as_ext=True)
-  print("[ CHECK ] Just wrote the raw file to %s.float32." % raw_dest)
-  print("""          Open this file in a hex editor and confirm that it has
-          the following 32-bit hex values in order.   Note, though,
-          that these values are displayed here in big-endian order;
-          if you're on a little-endian architecture (which is very
-          likely), then the bytes in each 32-bit word will be stored
-          in reverse order.
-            b0b0b0b0 b0b0b0b1 b0b0b0b2 b0b0b0b3 b0b0b0b4
-            b1b0b0b0 b1b0b0b1 b1b0b0b2 b1b0b0b3 b1b0b0b4
-            
-            b0b0b1b0 b0b0b1b1 b0b0b1b2 b0b0b1b3 b0b0b1b4
-            b1b0b1b0 b1b0b1b1 b1b0b1b2 b1b0b1b3 b1b0b1b4
-            
-            b0b0b2b0 b0b0b2b1 b0b0b2b2 b0b0b2b3 b0b0b2b4
-            b1b0b2b0 b1b0b2b1 b1b0b2b2 b1b0b2b3 b1b0b2b4
-            
-            b0b0b3b0 b0b0b3b1 b0b0b3b2 b0b0b3b3 b0b0b3b4
-            b1b0b3b0 b1b0b3b1 b1b0b3b2 b1b0b3b3 b1b0b3b4
-            
-            b0b1b0b0 b0b1b0b1 b0b1b0b2 b0b1b0b3 b0b1b0b4
-            b1b1b0b0 b1b1b0b1 b1b1b0b2 b1b1b0b3 b1b1b0b4
-            
-            b0b1b1b0 b0b1b1b1 b0b1b1b2 b0b1b1b3 b0b1b1b4
-            b1b1b1b0 b1b1b1b1 b1b1b1b2 b1b1b1b3 b1b1b1b4
-            
-            b0b1b2b0 b0b1b2b1 b0b1b2b2 b0b1b2b3 b0b1b2b4
-            b1b1b2b0 b1b1b2b1 b1b1b2b2 b1b1b2b3 b1b1b2b4
-            
-            b0b1b3b0 b0b1b3b1 b0b1b3b2 b0b1b3b3 b0b1b3b4
-            b1b1b3b0 b1b1b3b1 b1b1b3b2 b1b1b3b3 b1b1b3b4
-            
-            b0b2b0b0 b0b2b0b1 b0b2b0b2 b0b2b0b3 b0b2b0b4
-            b1b2b0b0 b1b2b0b1 b1b2b0b2 b1b2b0b3 b1b2b0b4
-            
-            b0b2b1b0 b0b2b1b1 b0b2b1b2 b0b2b1b3 b0b2b1b4
-            b1b2b1b0 b1b2b1b1 b1b2b1b2 b1b2b1b3 b1b2b1b4
-            
-            b0b2b2b0 b0b2b2b1 b0b2b2b2 b0b2b2b3 b0b2b2b4
-            b1b2b2b0 b1b2b2b1 b1b2b2b2 b1b2b2b3 b1b2b2b4
-            
-            b0b2b3b0 b0b2b3b1 b0b2b3b2 b0b2b3b3 b0b2b3b4
-            b1b2b3b0 b1b2b3b1 b1b2b3b2 b1b2b3b3 b1b2b3b4
-""")
-  
-  
-  saveSizeInfo(size_info_dest, raw, vox_sz=(1,1,1), dimorder=true_dimorder,
-               size_cfg={}, infer_name=False)
-  print("[ CHECK ] Just wrote the size info file to %s." % size_info_dest)
-  print("""          Open this file in a plaintext editor and confirm that it
-          has an image size of (2, 3, 4), num_dwis = 5, and
-          dimension order IXZY.""")
-  
-  
-  (raw_rec, cfg) = loadRawWithSizeInfo(raw_dest + ".float32",
-                     sizefile=None, dtype=None, cropped=None, dimorder=None,
-                     diskorder='F', memorder='C')
-  # raw_rec and raw should be identical.
-  if np.array_equal(raw, raw_rec):
-    print("[ PASS ]  Successfully wrote a raw image to disk and re-read it.")
-  else:
-    print("[ FAIL ]  Image->disk->image translation error.  Dump:")
-    print('          Original image (raw):')
-    printLongList(flatHexList(raw))
-    print('          Image read from disk (raw_rec):')
-    printLongList(flatHexList(raw_rec))
-  print()
-  
-  # Write to a single 4-D NIfTI file, using all of our nifty inference
-  # abilities: we infer the size_info filename from the raw filename, and we
-  # read the dimension order from the size_info file.
-  rawToNifti(raw_dest + ".float32", sizefile=None, outfile=None,
-             dimorder=None, diskorder='F', dtype=None, split4=False)
-  print("[ CHECK ] Just wrote the image as a 4-D NIfTI file: %s.nii." % raw_dest)
-  print("""          Use nifti_tool to check that the "dim" value in the header
-          is [4,2,3,4,5,1,1,1] (a 4-D 2x3x4x5 volume).  Then open it in a hex
-          editor and look at the data portion, which starts after the end of 
-          the header.  (You can spot the end of the header by the magic string
-          "n+1", with five null bytes after it.)
-            Confirm that the most significant byte of each value is fastest-
-          changing, followed by the next-most-significant, and so on.  In
-          big-endian format, the expected values are:
-            b0b0b0b0 b1b0b0b0 b0b1b0b0 b1b1b0b0 b0b2b0b0 b1b2b0b0
-            b0b0b1b0 b1b0b1b0 b0b1b1b0 b1b1b1b0 b0b2b1b0 b1b2b1b0
-            b0b0b2b0 b1b0b2b0 b0b1b2b0 b1b1b2b0 b0b2b2b0 b1b2b2b0
-            b0b0b3b0 b1b0b3b0 b0b1b3b0 b1b1b3b0 b0b2b3b0 b1b2b3b0
-            
-            b0b0b0b1 b1b0b0b1 b0b1b0b1 b1b1b0b1 b0b2b0b1 b1b2b0b1
-            b0b0b1b1 b1b0b1b1 b0b1b1b1 b1b1b1b1 b0b2b1b1 b1b2b1b1
-            b0b0b2b1 b1b0b2b1 b0b1b2b1 b1b1b2b1 b0b2b2b1 b1b2b2b1
-            b0b0b3b1 b1b0b3b1 b0b1b3b1 b1b1b3b1 b0b2b3b1 b1b2b3b1
-            
-            b0b0b0b2 b1b0b0b2 b0b1b0b2 b1b1b0b2 b0b2b0b2 b1b2b0b2
-            b0b0b1b2 b1b0b1b2 b0b1b1b2 b1b1b1b2 b0b2b1b2 b1b2b1b2
-            b0b0b2b2 b1b0b2b2 b0b1b2b2 b1b1b2b2 b0b2b2b2 b1b2b2b2
-            b0b0b3b2 b1b0b3b2 b0b1b3b2 b1b1b3b2 b0b2b3b2 b1b2b3b2
-            
-            b0b0b0b3 b1b0b0b3 b0b1b0b3 b1b1b0b3 b0b2b0b3 b1b2b0b3
-            b0b0b1b3 b1b0b1b3 b0b1b1b3 b1b1b1b3 b0b2b1b3 b1b2b1b3
-            b0b0b2b3 b1b0b2b3 b0b1b2b3 b1b1b2b3 b0b2b2b3 b1b2b2b3
-            b0b0b3b3 b1b0b3b3 b0b1b3b3 b1b1b3b3 b0b2b3b3 b1b2b3b3
-            
-            b0b0b0b4 b1b0b0b4 b0b1b0b4 b1b1b0b4 b0b2b0b4 b1b2b0b4
-            b0b0b1b4 b1b0b1b4 b0b1b1b4 b1b1b1b4 b0b2b1b4 b1b2b1b4
-            b0b0b2b4 b1b0b2b4 b0b1b2b4 b1b1b2b4 b0b2b2b4 b1b2b2b4
-            b0b0b3b4 b1b0b3b4 b0b1b3b4 b1b1b3b4 b0b2b3b4 b1b2b3b4
-""")
-  
-  # Same as above, but with split files.
-  rawToNifti('/tmp/miraw_test_raw.float32', sizefile=None, outfile=None,
-             dimorder=None, diskorder='F', dtype=None, split4=True)
-  print("[ CHECK ] Just wrote the image as 5 3-D NIfTI files: %s_XXX.nii." % raw_dest)
-  print("""          There should be five volumes, numbered 000 through 004, one
-          per "I" value.  Use nifti_tool to check that the "dim" value in the
-          header of each file is [3,2,3,4,1,1,1,1] (a 3-D 2x3x4 volume).  Then
-          open each one in a hex editor.  You should see the values from each
-          respective group above in the data portion of the file.
-""")
 
