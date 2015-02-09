@@ -115,3 +115,36 @@ def ndcopyUsesOrder(X, order):
 def ndcopyIgnoreOrder(X, order):
   return X.copy()
 
+
+############
+# The following is a runtime bugfix for older versions of numpy that don't
+# support an "order" argument to either of the numpy "copy()" functions: neither
+# to the plain numpy.copy(), nor to the copy() member function of ndarray
+# objects.  This bug is confirmed in numpy 1.5.1 (on Python 2.7) and is fixed
+# in numpy 1.8.0 (on Python 2.7 and 3.3).
+
+def getBestSupportedNdcopy():
+  try:
+    import numpy.random
+    X = numpy.random.random((5,3,4))
+    Y = X.copy(order="F")
+    _ndcopyWithOrder = ndcopyUsesOrder
+  except TypeError:
+    import warnings
+    w = "\n  Your current numpy version is " + str(numpy.__version__) + "." + """
+    This numpy version does not support an 'order'
+  argument to ndarry.copy().  Please update numpy
+  to a version >= 1.8.0.
+    miraw.readRaw() and miraw.readRawWithSizeInfo()
+  will not be able to use custom memory orders; the
+  'memorder' keyword argument will be silently
+  ignored.
+  """
+    warnings.warn(w, RuntimeWarning, stacklevel=2)
+    _ndcopyWithOrder = ndcopyIgnoreOrder
+  return _ndcopyWithOrder
+
+ndcopyWithOrder = getBestSupportedNdcopy()
+
+# End fix for stupid numpy bug.
+############
