@@ -491,7 +491,10 @@ if has_nifti:
     cfg['full_image_size_(voxels)']    = raw.shape[:3]
     cfg['low_end_crop_(voxels)']       = [0,0,0]
     cfg['cropped_image_size_(voxels)'] = cfg['full_image_size_(voxels)']
-    cfg['num_dwis']                    = raw.shape[3]
+    if len(raw.shape) > 3:
+      cfg['num_dwis']                  = raw.shape[3]
+    else:
+      cfg['num_dwis']                  = 1
     cfg['dimension_order']             = _miraw_helpers.DIM_DEFAULT_ORDER
     
     return (raw.astype(dtype, order=memorder), cfg, header)
