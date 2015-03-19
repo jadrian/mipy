@@ -19,17 +19,12 @@ greymap_with_gamma = {'red':   [(0.0, 0.0, 0.0), (1.0, 1.0, 1.0)],
 # Feature requests:
 # - Enable flagging of out-of-bounds values
 
-def viewSlice(X, lo=None, hi=None, gamma=0.5, flipaxes=False):
+def viewSlice(X, lo=None, hi=None, gamma=0.5, flipaxes=False, ax=None):
   """View a 2-D image: either scalars mapped to greyscale, or RGB[A].
   
   Using matplotlib.pyplot.imshow(), display a properly-oriented image of an
-  ndarray: either in greyscale if 2-D, or color if 3-D.
-  
-  This function assumes that a matplotlib figure is already open.  If not,
-  you can force a new one by calling
-    miview.plt.ion()
-  before your first call to viewSlice().  You may (and should) then call
-    miview.plt.ioff()
+  ndarray: either in greyscale if 2-D, or color if 3-D.  If color, X.shape[2]
+  must be 3 (for RGB) or 4 (for RGBA).
   
   Arguments:
     X:        An ndarray with shape (A,B), (A,B,3), or (A,B,4).
@@ -38,6 +33,26 @@ def viewSlice(X, lo=None, hi=None, gamma=0.5, flipaxes=False):
     gamma:    The gamma (mid-tone warping) to apply to the greyscale map.
     flipaxes: If False (default), map the first dimension of X to the horizontal
               plot axis.  If True, map to the vertical instead.
+    ax:       The Matplotlib axes to plot on.  If None, uses Pyplot's gca.
+  
+  Returns the AxesImage object created by calling imshow().
+  
+  The behavior with regard to windows and drawing differs depending on how you
+  call viewSlice and on the current state of Matplotlib/Pyplot.  Let's give
+  these possibilities names:
+        A: You specify an ax argument.
+       ~A: You don't specify an ax argument.
+        I: Pyplot is currently in interactive mode (matplotlib.pyplot.ion()).
+       ~I: Pyplot is not in interactive mode.
+        V: The axes (either ax or pyplot.gca()) are currently visible.
+       ~V: No axes exist, or the axes are not visible yet.
+  
+   - If A, then the image will be drawn into the specified axes.
+   - If ~A, then the image will be drawn into the current axes (pyplot.gca()).
+     If no axes (or figure) exist, then they will be created automatically.
+   - If ~A and (I or V), then the new image will appear immediately.
+   - If A or (~I and ~V), then you'll need to either call pyplot.show() or
+     fig.show() (where fig is the figure containing the given axes).
   
   Examples:
   # Here foo is an ndarry with foo.shape = (64, 36, 28, 22).
@@ -83,23 +98,23 @@ def viewSlice(X, lo=None, hi=None, gamma=0.5, flipaxes=False):
     tr = [0,1]
   if rgb:
     tr += [2]
-  plt.imshow(X.transpose(tr), norm=scale, cmap=gmap,
-             origin='lower', interpolation='nearest')
-  plt.draw()
+  ax_given = True
+  if ax is None:
+    ax = plt.gca()
+    ax_given = False
+  img = ax.imshow(X.transpose(tr), norm=scale, cmap=gmap,
+                  origin='lower', interpolation='nearest')
+  if not ax_given:
+    plt.draw()
+  return img
 
 
 def stackToVideo(X, t=0.1, lo=None, hi=None,
-                 dims=(0,1,2), gamma=0.5, flipaxes=False):
+                 dims=(0,1,2), gamma=0.5, flipaxes=False, ax=None):
   """View a 3-D image volume as an animation: either in greyscale or in color.
   
   This is like calling viewSlice() a bunch of times in succession, with a
   time.sleep(t) in between, but way more efficient.
-  
-  This function assumes that a matplotlib figure is already open.  If not,
-  you can force a new one by calling
-    miview.plt.ion()
-  before your first call to stackToVideo().  You may (and should) then call
-    miview.plt.ioff()
   
   You can stop the video at any time by hitting ctrl-C.
   
@@ -116,6 +131,15 @@ def stackToVideo(X, t=0.1, lo=None, hi=None,
     gamma:    The gamma (mid-tone warping) to apply to the greyscale map.
     flipaxes: If False (default), map the first dimension of X to the horizontal
               plot axis.  If True, map to the vertical instead.
+    ax:       The Matplotlib axes to plot on.  If None, uses Pyplot's gca.
+  
+  This function really only makes sense when the environment is set to
+  immediately display things that are plotted in the given axes.  Here are two
+  ways to put that in place before you call stackToVideo:
+          miview.plt.ion()  # Put Pyplot in interactive mode.
+          # --- OR ---
+          f = mivivew.plt.figure()  # Create a new figure.
+          f.show()                  # Display it without blocking the next call.
   
   Examples:
   # Here foo is an ndarry with foo.shape = (64, 36, 28, 22).  We will call the
@@ -164,7 +188,8 @@ def stackToVideo(X, t=0.1, lo=None, hi=None,
     XT = X.transpose(dims[1], dims[0], dims[2], 3)
   scale = colors.Normalize(lo, hi, clip=True)
   scale.autoscale_None(X)
-  ax = plt.gca()
+  if ax is None:
+    ax = plt.gca()
   if scalar:
     gmap = colors.LinearSegmentedColormap('anon',greymap_with_gamma,gamma=gamma)
     img = ax.imshow(XT[:,:,0],
