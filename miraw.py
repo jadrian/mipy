@@ -1,3 +1,12 @@
+"""Functions for dealing with raw medical imaging datasets.
+
+This module is particularly focused on working with diffusion-weighted images
+and derived images, which are typically 4-D (3 for space, plus one dimension for
+arbitrary sample vectors).  Its default metadata format, "size_info", is a hacky
+thing custom-built just for DWIs, and does not accommodate N-D volumes for N < 3
+or N > 4.  The readRaw() and saveRaw() functions, however, will work for any N.
+"""
+
 import numpy as np
 import os.path
 import mipy._miraw_helpers as _miraw_helpers
@@ -11,15 +20,6 @@ won't be supported for you.  nibabel exists for both Python 2 and 3, though,
 so look into installing it."""
   warnings.warn(w, RuntimeWarning)
   has_nifti = False
-
-"""Functions for dealing with raw medical imaging datasets.
-
-This module is particularly focused on working with diffusion-weighted images
-and derived images, which are typically 4-D (3 for space, plus one dimension for
-arbitrary sample vectors).  Its default metadata format, "size_info", is a hacky
-thing custom-built just for DWIs, and does not accommodate N-D volumes for N < 3
-or N > 4.  The readRaw() and saveRaw() functions, however, will work for any N.
-"""
 
 def readRaw(f, shape, dtype=None, diskorder='F', memorder='C'):
   """Loads array data from a raw binary file on disk.
@@ -88,7 +88,7 @@ def readRaw(f, shape, dtype=None, diskorder='F', memorder='C'):
 
 
 def saveRaw(f, X, order='F', dtype_as_ext=False):
-  """Save array data to a raw binary file on disk.
+  """Saves array data to a raw binary file on disk.
   
   This is a wrapper around numpy.ndarray.tofile.  Its particular purpose is
   to enable the creation of "Fortran-ordered" raw files, (aka column-major;
@@ -204,7 +204,7 @@ def readRawWithSizeInfo(f, sizefile=None, dtype=None, cropped=None, dimorder=Non
 
 
 def saveSizeInfo(f, img, vox_sz=(1,1,1), dimorder=None, size_cfg={}, infer_name=False):
-  """Write a size_info metadata file to disk for a given array.
+  """Writes a size_info metadata file to disk for a given array.
   
   A size_info file stores image (array) dimensions for raw images, as well as
   voxel size and cropping information (indicating that the array is cropped
@@ -363,7 +363,7 @@ def undoDimOrderOnList(L, dimorder):
 
 
 def parseBvecs(f):
-  """Parse a b vector file's contents.
+  """Parses a b vector file's contents.
   
   Arguments:
     f: An open file handle, a filename string, or a string of the contents of
@@ -421,7 +421,7 @@ def parseBvecs(f):
 
 if has_nifti:
   def readNifti(infile, dtype=None, memorder=None):
-    """Read a NIfTI file into a numpy array.
+    """Reads a NIfTI file into a numpy array.
     
     Arguments:
       infile:    Filename of a NIfTI file, or a list of strings.  The list
@@ -631,7 +631,7 @@ if has_nifti:
   
   
   def niftiToRaw(infile, outfile=None, sizefile=None, dimorder=None, diskorder='F', dtype=None, dtype_as_ext=False):
-    """Convert a NIfTI file (or set of files) to a raw file.
+    """Converts a NIfTI file (or set of files) to a raw file.
     
     Arguments:
       infile:       Filename of a NIfTI file, or a list of strings.  The list
@@ -709,7 +709,7 @@ if has_nifti:
   
   
   def rawToNifti(infile, sizefile=None, outfile=None, dimorder=None, diskorder='F', dtype=None, split4=False):
-    """Convert a raw file to a NIfTI file.
+    """Converts a raw file to a NIfTI file.
     
     Arguments:
       infile:    Filename of a raw file.
@@ -765,7 +765,7 @@ if has_nifti:
 
 
 def parseConfig(s):
-  """Parse a simple config file.
+  """Parses a simple config file.
   
   The expected format encodes a simple key-value store: keys are strings,
   one per line, and values are arrays.  Keys may not have colons in them;
@@ -812,7 +812,7 @@ def parseConfig(s):
 
 
 def readConfigFile(filename):
-  """Read a config file and parse it with parseConfig()."""
+  """Reads a config file and parse it with parseConfig()."""
   fid = open(filename, 'r')
   s = fid.read()
   fid.close()
